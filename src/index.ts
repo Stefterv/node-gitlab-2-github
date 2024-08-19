@@ -4,7 +4,7 @@ import {
   SimpleLabel,
   SimpleMilestone,
 } from './githubHelper';
-import { GitlabHelper, GitLabIssue, GitLabMilestone } from './gitlabHelper';
+import { GitlabHelper, GitLabIssue, GitLabMergeRequest, GitLabMilestone } from './gitlabHelper';
 import settings from '../settings';
 
 import { Octokit as GitHubApi } from '@octokit/rest';
@@ -145,7 +145,19 @@ function createPlaceholderMilestone(expectedIdx: number): MilestoneImport {
  * @param expectedIdx Number of the GitLab issue
  * @returns Data for the issue
  */
-function createPlaceholderIssue(expectedIdx: number): Partial<GitLabIssue> {
+function createPlaceholderIssue(expectedIdx: number, mergeRequests: GitLabMergeRequest[]): Partial<GitLabIssue> {
+  const mergeRequest = mergeRequests.find(mr => mr.iid === expectedIdx);
+  if (mergeRequest) {
+    return {
+      iid: expectedIdx,
+      title: mergeRequest.title.trim() + ' - [' + mergeRequest.state + ']',
+      description:
+        'This is to ensure that issue numbers in GitLab and GitHub are the same',
+      state: mergeRequest.state === 'merged' || mergeRequest.state === 'closed' ? 'closed' : 'open',
+      isPlaceholder: true,
+    }
+  }
+
   return {
     iid: expectedIdx,
     title: `[PLACEHOLDER] - for issue #${expectedIdx}`,
@@ -433,6 +445,12 @@ async function transferIssues() {
   console.log(`Transferring ${issues.length} issues.`);
 
   if (settings.usePlaceholderIssuesForMissingIssues) {
+    let mergeRequests = await gitlabApi.MergeRequests.all({
+      projectId: settings.gitlab.projectId,
+      labels: settings.filterByLabel,
+    });
+
+
     for (let i = 0; i < issues.length; i++) {
       // GitLab issue internal Id (iid)
       let expectedIdx = i + 1;
@@ -442,7 +460,7 @@ async function transferIssues() {
       // issue number as in GitLab. If a placeholder is used it is because there
       // was a gap in GitLab issues -- likely caused by a deleted GitLab issue.
       if (issues[i].iid !== expectedIdx) {
-        issues.splice(i, 0, createPlaceholderIssue(expectedIdx) as GitLabIssue); // HACK: remove type coercion
+        issues.splice(i, 0, createPlaceholderIssue(expectedIdx, mergeRequests) as GitLabIssue); // HACK: remove type coercion
         counters.nrOfPlaceholderIssues++;
         console.log(
           `Added placeholder issue for GitLab issue #${expectedIdx}.`
